@@ -1,14 +1,14 @@
-import { AppSettings, CapturedElement, GeneratedCode } from '../domain/types';
+import { AppSettings, CapturedElement, GeneratedCode, CapturedRequest } from '../domain/types';
 
 export interface LLMProvider {
-    generateCode(elements: CapturedElement[], settings: AppSettings): Promise<GeneratedCode>;
+    generateCode(elements: CapturedElement[], settings: AppSettings, requests?: CapturedRequest[]): Promise<GeneratedCode>;
 }
 
 export class OpenAILLMProvider implements LLMProvider {
-    async generateCode(elements: CapturedElement[], settings: AppSettings): Promise<GeneratedCode> {
+    async generateCode(elements: CapturedElement[], settings: AppSettings, requests: CapturedRequest[] = []): Promise<GeneratedCode> {
         if (!settings.apiKey) throw new Error("API Key is missing");
 
-        const prompt = this.buildPrompt(elements, settings.targetLanguage);
+        const prompt = this.buildPrompt(elements, requests, settings.targetLanguage);
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -19,7 +19,7 @@ export class OpenAILLMProvider implements LLMProvider {
             body: JSON.stringify({
                 model: settings.modelName,
                 messages: [
-                    { role: 'system', content: 'You are an expert QA Automation Engineer. Generate robust, production-ready code.' },
+                    { role: 'system', content: 'You are an expert QA Automation Engineer. Generate robust, production-ready code. Use Page Object Model where appropriate.' },
                     { role: 'user', content: prompt }
                 ]
             })
@@ -34,15 +34,21 @@ export class OpenAILLMProvider implements LLMProvider {
         };
     }
 
-    private buildPrompt(elements: CapturedElement[], language: string): string {
+    private buildPrompt(elements: CapturedElement[], requests: CapturedRequest[], language: string): string {
         return `
-      Generate ${language} code for the following UI elements.
-      For each element, create a page object model selector or a step definition.
+      Generate ${language} code.
       
-      Elements:
+      UI Elements Captured:
       ${JSON.stringify(elements.map(e => ({ tag: e.tagName, attributes: e.attributes, outerHTML: e.outerHTML })), null, 2)}
       
-      Return ONLY the code block without markdown fencing if possible, or minimally formatted.
+      Network Requests Captured:
+      ${JSON.stringify(requests.map(r => ({ method: r.method, url: r.url, status: r.status, body: r.requestBody })), null, 2)}
+      
+      Instructions:
+      1. If UI elements are present, generate page objects/selectors/steps to interact with them.
+      2. If Network requests are present, include code to intercept/mock these requests or verify them (e.g., page.route in Playwright, or cy.intercept in Cypress).
+      3. Use best practices for the target language (${language}).
+      4. Return ONLY the code block.
     `;
     }
 }
@@ -52,9 +58,6 @@ export const LLMServiceFactory = {
         switch (settings.llmProvider) {
             case 'openai':
                 return new OpenAILLMProvider();
-            case 'gemini':
-                // Placeholder for Gemini implementation
-                throw new Error("Gemini provider not yet implemented");
             default:
                 return new OpenAILLMProvider();
         }

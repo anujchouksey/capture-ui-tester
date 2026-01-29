@@ -78,6 +78,9 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({ onSave }) => {
                     { label: 'Playwright (TS)', value: 'playwright' },
                     { label: 'Cucumber (Java)', value: 'cucumber-java' },
                     { label: 'Selenium (Java)', value: 'java-selenium' },
+                    { label: 'Cypress (TS)', value: 'cypress' },
+                    { label: 'Selenium (Python)', value: 'selenium-python' },
+                    { label: 'Puppeteer (TS)', value: 'puppeteer' },
                 ]}
             />
 

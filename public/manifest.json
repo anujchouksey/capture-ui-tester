@@ -29,6 +29,16 @@
       ]
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "scripts/network-observer.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "action": {
     "default_title": "Open Capture Panel"
   },

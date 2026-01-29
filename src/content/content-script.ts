@@ -95,6 +95,55 @@ function handleClick(e: MouseEvent) {
     chrome.runtime.sendMessage({ type: 'ELEMENT_CAPTURED', payload });
 }
 
+
+function scanPage() {
+    const interactiveSelectors = 'button, a, input, select, textarea, [role="button"]';
+    const elements = document.querySelectorAll(interactiveSelectors);
+    const discovered: any[] = [];
+
+    elements.forEach(el => {
+        // Skip hidden elements
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0 || window.getComputedStyle(el).display === 'none') return;
+
+        // Skip our own overlay
+        if (el.classList.contains('capture-ui-overlay')) return;
+
+        // Generate Name/Label
+        let name = '';
+        if (el instanceof HTMLElement) name = el.innerText;
+        if (!name && el instanceof HTMLInputElement) name = el.placeholder || el.value;
+        if (!name) name = el.getAttribute('aria-label') || '';
+        if (!name) name = el.id;
+        name = name.slice(0, 30).trim(); // Truncate
+
+        const cssSelector = getCssSelector(el);
+        const xpathSelector = getXPath(el);
+
+        const attributes: Record<string, string> = {};
+        Array.from(el.attributes).forEach(attr => {
+            attributes[attr.name] = attr.value;
+        });
+
+        discovered.push({
+            id: crypto.randomUUID(),
+            tagName: el.tagName.toLowerCase(),
+            name: name || el.tagName.toLowerCase(),
+            selectors: {
+                css: cssSelector,
+                xpath: xpathSelector
+            },
+            outerHTML: el.outerHTML,
+            attributes,
+            autoDiscovered: true
+        });
+    });
+
+    if (discovered.length > 0) {
+        chrome.runtime.sendMessage({ type: 'ELEMENTS_DISCOVERED', payload: discovered });
+    }
+}
+
 function startCapture() {
     if (isCapturing) return;
     isCapturing = true;
@@ -102,7 +151,11 @@ function startCapture() {
     document.addEventListener('mouseover', handleMouseOver, true);
     document.addEventListener('click', handleClick, true);
     document.body.style.cursor = 'crosshair';
+
+    // Auto-discover interactive elements immediately
+    scanPage();
 }
+
 
 function stopCapture() {
     isCapturing = false;
@@ -112,8 +165,29 @@ function stopCapture() {
     document.body.style.cursor = '';
 }
 
+
+function injectNetworkObserver() {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('scripts/network-observer.js');
+    script.onload = function () {
+        // @ts-ignore
+        this.remove();
+    };
+    (document.head || document.documentElement).appendChild(script);
+}
+
+// Listen for messages from the MAIN world (network observer)
+window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data || event.data.source !== 'CAPTURE_UI_TESTER') {
+        return;
+    }
+    // Forward to extension background/sidepanel
+    chrome.runtime.sendMessage(event.data.payload);
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'START_CAPTURE') {
+        injectNetworkObserver(); // Inject only when capture starts
         startCapture();
     } else if (message.type === 'STOP_CAPTURE') {
         stopCapture();

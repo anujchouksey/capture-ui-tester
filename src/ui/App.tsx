@@ -1,24 +1,50 @@
 import React, { useEffect, useState } from 'react';
-import { AppSettings, CapturedElement, GeneratedCode } from '../domain/types';
+import { AppSettings, CapturedElement, GeneratedCode, CapturedRequest } from '../domain/types';
 import { LLMServiceFactory } from '../services/LLMService';
 import { SettingsRepository } from '../services/SettingsRepository';
 import { Button } from './components/Button';
 import { ElementList } from './features/ElementList';
 import { SettingsForm } from './features/SettingsForm';
+import { NetworkList } from './features/NetworkList';
 
 export const App = () => {
     const [view, setView] = useState<'capture' | 'settings'>('capture');
+    const [activeTab, setActiveTab] = useState<'elements' | 'network'>('elements');
+
     const [elements, setElements] = useState<CapturedElement[]>([]);
+    const [requests, setRequests] = useState<CapturedRequest[]>([]);
+
     const [generatedCode, setGeneratedCode] = useState<GeneratedCode | null>(null);
     const [isCapturing, setIsCapturing] = useState(false);
     const [loadingCode, setLoadingCode] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Listen for messages from content script
         const messageListener = (message: any) => {
             if (message.type === 'ELEMENT_CAPTURED') {
                 setElements(prev => [...prev, message.payload]);
+            } else if (message.type === 'ELEMENTS_DISCOVERED') {
+                // Avoid duplicates based on ID or selector if possible, but for now just replacing or appending?
+                // Let's replace if empty, or append unique ones.
+                // User asked to "load all elements", implying this should be the state.
+                // Since it happens on start capture, we might want to prioritize these.
+                // Let's append but filter by ID.
+                setElements(prev => {
+                    const newEls = message.payload as CapturedElement[];
+                    const existingIds = new Set(prev.map(e => e.id));
+                    const uniqueNew = newEls.filter(e => !existingIds.has(e.id));
+                    return [...prev, ...uniqueNew];
+                });
+            } else if (message.type === 'NETWORK_REQUEST') {
+                // Append new request
+                setRequests(prev => [...prev, message.data]);
+            } else if (message.type === 'NETWORK_RESPONSE') {
+                // Update existing request with status and body
+                setRequests(prev => prev.map(req =>
+                    req.id === message.data.id
+                        ? { ...req, status: message.data.status, responseBody: message.data.responseBody }
+                        : req
+                ));
             }
         };
 
@@ -33,7 +59,6 @@ export const App = () => {
             return;
         }
 
-        // Prevent capturing on restricted pages
         if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('edge://')) {
             setError("Cannot capture on browser system pages.");
             return;
@@ -43,18 +68,15 @@ export const App = () => {
         setError(null);
 
         try {
-            // optimized: try sending immediately
             await chrome.tabs.sendMessage(tab.id, { type: 'START_CAPTURE' });
         } catch (err) {
             console.log("Message failed, attempting injection...", err);
-            // Fallback: Inject script and retry
             try {
                 await chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     files: ['scripts/content.js']
                 });
 
-                // Give it a moment to initialize
                 setTimeout(async () => {
                     try {
                         if (tab.id) await chrome.tabs.sendMessage(tab.id, { type: 'START_CAPTURE' });
@@ -76,7 +98,11 @@ export const App = () => {
         setIsCapturing(false);
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab.id) {
-            await chrome.tabs.sendMessage(tab.id, { type: 'STOP_CAPTURE' });
+            try {
+                await chrome.tabs.sendMessage(tab.id, { type: 'STOP_CAPTURE' });
+            } catch (e) {
+                // Ignore
+            }
         }
     };
 
@@ -86,6 +112,8 @@ export const App = () => {
         try {
             const settings = await SettingsRepository.load();
             const provider = LLMServiceFactory.getProvider(settings);
+            // Pass both elements and network requests to LLM
+            // Note: We might want to filter requests or let LLM decide
             const result = await provider.generateCode(elements, settings);
             setGeneratedCode(result);
         } catch (err: any) {
@@ -103,7 +131,6 @@ export const App = () => {
 
     return (
         <div className="w-full min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-            {/* Header */}
             <header className="px-4 py-3 bg-white border-b border-slate-200 flex justify-between items-center sticky top-0 z-10">
                 <h1 className="font-bold text-lg bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                     Capture UI
@@ -117,32 +144,49 @@ export const App = () => {
                 </Button>
             </header>
 
-            {/* Main Content */}
             <main className="flex-1 p-4 overflow-y-auto">
                 {view === 'settings' ? (
                     <SettingsForm onSave={() => setView('capture')} />
                 ) : (
                     <div className="space-y-4">
-                        {/* Action Bar */}
                         <div className="flex gap-2">
                             {!isCapturing ? (
-                                <Button onClick={handleStartCapture} className="flex-1">
-                                    Start Capture
-                                </Button>
+                                <Button onClick={handleStartCapture} className="flex-1">Start Capture</Button>
                             ) : (
-                                <Button onClick={handleStopCapture} variant="danger" className="flex-1 animate-pulse">
-                                    Stop Capture
-                                </Button>
+                                <Button onClick={handleStopCapture} variant="danger" className="flex-1 animate-pulse">Stop Capture</Button>
                             )}
                         </div>
 
-                        <ElementList
-                            elements={elements}
-                            onRemove={(id) => setElements(prev => prev.filter(e => e.id !== id))}
-                            onClear={() => { setElements([]); setGeneratedCode(null); }}
-                        />
+                        {/* Tabs */}
+                        <div className="flex border-b border-slate-200">
+                            <button
+                                className={`flex-1 py-2 text-sm font-medium ${activeTab === 'elements' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setActiveTab('elements')}
+                            >
+                                Elements ({elements.length})
+                            </button>
+                            <button
+                                className={`flex-1 py-2 text-sm font-medium ${activeTab === 'network' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                onClick={() => setActiveTab('network')}
+                            >
+                                Network ({requests.length})
+                            </button>
+                        </div>
 
-                        {elements.length > 0 && (
+                        {activeTab === 'elements' ? (
+                            <ElementList
+                                elements={elements}
+                                onRemove={(id) => setElements(prev => prev.filter(e => e.id !== id))}
+                                onClear={() => { setElements([]); setGeneratedCode(null); }}
+                            />
+                        ) : (
+                            <NetworkList
+                                requests={requests}
+                                onClear={() => setRequests([])}
+                            />
+                        )}
+
+                        {(elements.length > 0 || requests.length > 0) && (
                             <Button
                                 onClick={handleGenerate}
                                 disabled={loadingCode}

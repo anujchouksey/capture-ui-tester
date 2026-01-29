@@ -11,6 +11,7 @@ export default defineConfig({
             input: {
                 background: resolve(__dirname, 'src/background/service-worker.js'),
                 content: resolve(__dirname, 'src/content/content-script.ts'),
+                'network-observer': resolve(__dirname, 'src/content/network-observer.ts'),
             },
             output: {
                 entryFileNames: 'scripts/[name].js',

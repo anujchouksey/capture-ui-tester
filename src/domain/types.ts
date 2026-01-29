@@ -3,7 +3,17 @@ export interface AppSettings {
     apiKey: string;
     modelName: string;
     customEndpoint?: string;
-    targetLanguage: 'playwright' | 'cucumber-java' | 'java-selenium';
+    targetLanguage: 'playwright' | 'cucumber-java' | 'java-selenium' | 'cypress' | 'selenium-python' | 'puppeteer';
+}
+
+export interface CapturedRequest {
+    id: string;
+    url: string;
+    method: string;
+    requestBody?: string;
+    responseBody?: string;
+    status?: number;
+    timestamp: number;
 }
 
 export interface CapturedElement {
@@ -15,6 +25,8 @@ export interface CapturedElement {
         testId?: string;
     };
     outerHTML: string;
+    name?: string;
+    autoDiscovered?: boolean;
     attributes: Record<string, string>;
     screenshotUrl?: string;
 }

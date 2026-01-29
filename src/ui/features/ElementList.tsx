@@ -31,18 +31,27 @@ export const ElementList: React.FC<ElementListProps> = ({ elements, onRemove, on
                 {elements.map((el) => (
                     <div key={el.id} className="p-3 bg-white border border-slate-200 rounded-md shadow-sm group hover:border-blue-400 transition-colors">
                         <div className="flex justify-between items-start mb-1">
-                            <span className="text-xs font-bold uppercase text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                                {el.tagName}
-                            </span>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="font-medium text-slate-800 text-sm truncate">
+                                        {el.name || el.tagName}
+                                    </div>
+                                    {el.autoDiscovered && (
+                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                            Auto
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono truncate mt-0.5" title={el.selectors.css}>
+                                    {el.selectors.css}
+                                </div>
+                            </div>
                             <button
                                 onClick={() => onRemove(el.id)}
                                 className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                                 ✕
                             </button>
-                        </div>
-                        <div className="text-xs font-mono bg-slate-50 p-1.5 rounded text-slate-600 truncate mb-1">
-                            {el.selectors.css || el.selectors.xpath}
                         </div>
                         {el.attributes['data-testid'] && (
                             <div className="text-xs text-green-600 font-mono">
