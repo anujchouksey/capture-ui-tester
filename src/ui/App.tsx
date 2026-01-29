@@ -28,12 +28,47 @@ export const App = () => {
 
     const handleStartCapture = async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab.id) {
-            setIsCapturing(true);
-            // Send message to content script
+        if (!tab?.id) {
+            setError("No active tab found.");
+            return;
+        }
+
+        // Prevent capturing on restricted pages
+        if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('edge://')) {
+            setError("Cannot capture on browser system pages.");
+            return;
+        }
+
+        setIsCapturing(true);
+        setError(null);
+
+        try {
+            // optimized: try sending immediately
             await chrome.tabs.sendMessage(tab.id, { type: 'START_CAPTURE' });
-            window.close(); // Optional: close panel if it was a popup, but for sidepanel we keep it open.
-            // Actually for sidepanel, we just want to signal the content script.
+        } catch (err) {
+            console.log("Message failed, attempting injection...", err);
+            // Fallback: Inject script and retry
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    files: ['scripts/content.js']
+                });
+
+                // Give it a moment to initialize
+                setTimeout(async () => {
+                    try {
+                        if (tab.id) await chrome.tabs.sendMessage(tab.id, { type: 'START_CAPTURE' });
+                    } catch (retryErr) {
+                        console.error("Retry failed", retryErr);
+                        setError("Failed to start capture. Please refresh the page.");
+                        setIsCapturing(false);
+                    }
+                }, 100);
+            } catch (injectErr: any) {
+                console.error("Injection failed", injectErr);
+                setError("Cannot capture on this page. (Restricted or Developer Tools)");
+                setIsCapturing(false);
+            }
         }
     };
 
